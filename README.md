@@ -16,3 +16,5 @@ Hardware:
 Modes:
 * brightness level
 * ...coming soon
+
+Project is based on https://github.com/tttapa/ESP8266
