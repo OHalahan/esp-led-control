@@ -5,13 +5,11 @@
 #include <WebSocketsServer.h>
 #include <ArduinoJson.h>
 
-#include <NTPClient.h>
+#include <credentials.h>
+
 #include <WiFiUdp.h>
 
 #include <math.h>
-
-WiFiUDP ntpUDP;
-NTPClient timeClient(ntpUDP);
 
 ESP8266WebServer server(80);    // create a web server on port 80
 WebSocketsServer webSocket(81); // create a websocket server on port 81
@@ -21,8 +19,8 @@ File fsUploadFile; // a File variable to temporarily store the received file
 const char *OTAName = "ESP8266"; // A name and a password for the OTA service
 // const char *OTAPassword = "esp8266";
 
-const char *ssid = "ssid";           // The SSID (name) of the Wi-Fi network you want to connect to
-const char *password = "pass"; // The password of the Wi-Fi network
+const char *ssid = SECRET_SSID;     // The SSID (name) of the Wi-Fi network you want to connect to
+const char *password = SECRET_PASSWORD; // The password of the Wi-Fi network
 
 #define BUILT_IN 2 // specify the pins with an RGB LED connected
 #define LED_STR 0  // specify the pins with an RGB LED connected
@@ -53,9 +51,6 @@ void setup()
   startWebSocket(); // Start a WebSocket server
 
   startServer(); // Start a HTTP server with a file read handler and an upload handler
-
-  //timeClient.begin();
-  //timeClient.setUpdateInterval(600000);
 }
 
 /*__________________________________________________________LOOP__________________________________________________________*/
@@ -65,7 +60,6 @@ void loop()
   webSocket.loop();      // constantly check for websocket events
   server.handleClient(); // run the server
   ArduinoOTA.handle();   // listen for OTA events
-  //handleTime();
 }
 
 /*__________________________________________________________SETUP_FUNCTIONS__________________________________________________________*/
@@ -95,7 +89,7 @@ void startWiFi()
     }
   }
 
-  fadeToLevel( 0, FADE_DELAY_FAST);
+  fadeToLevel(0, FADE_DELAY_FAST);
 
   Serial.println('\n');
   Serial.println("Connection established!");
@@ -159,11 +153,12 @@ void startWebSocket()
 }
 
 void startServer()
-{                                           // Start a HTTP server with a file read handler and an upload handler
-  server.on("/edit.html", HTTP_POST, []() { // If a POST request is sent to the /edit.html address,
-    server.send(200, "text/plain", "");
-  },
-            handleFileUpload); // go to 'handleFileUpload'
+{ // Start a HTTP server with a file read handler and an upload handler
+  server.on(
+      "/edit.html", HTTP_POST, []() { // If a POST request is sent to the /edit.html address,
+        server.send(200, "text/plain", "");
+      },
+      handleFileUpload); // go to 'handleFileUpload'
 
   server.onNotFound(handleNotFound); // if someone requests any other file or page, go to function 'handleNotFound'
                                      // and check if the file exists
@@ -171,24 +166,6 @@ void startServer()
   server.begin(); // start the HTTP server
   Serial.println("HTTP server started.");
 }
-
-/*__________________________________________________________TIME_HANDLERS__________________________________________________________*/
-void handleTime()
-{
-  timeClient.update();
-
-  int minutes = timeClient.getMinutes();
-  float temp = 300 * (minutes / 30);
-  
-  if (timeClient.getHours() == 4 && minutes < 15 && CURRENT_BRIGHTNESS != 300) {
-    fadeToLevel(300, 50);
-  } else if (timeClient.getHours() == 3 && minutes > 15 && CURRENT_BRIGHTNESS != 1000) {
-    fadeToLevel(1000, 50);    
-  }
-
-  delay(1000);
-}
-
 
 /*__________________________________________________________SERVER_HANDLERS__________________________________________________________*/
 
@@ -282,27 +259,31 @@ void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t lenght)
   case WStype_TEXT: // if new text data is received
     Serial.printf("[%u] get Text: %s\n", num, payload);
 
-    String whatWeHave = String((char*) payload);
+    String whatWeHave = String((char *)payload);
 
-    DynamicJsonBuffer jb;
-    JsonObject& parsed = jb.parseObject((char*) payload);
-    
-    if (!parsed.success()) {
-        webSocket.broadcastTXT(whatWeHave);
-        break;
+    DynamicJsonDocument doc(1024);
+    auto error = deserializeJson(doc, (char *)payload);
+
+    if (error)
+    {
+      Serial.print(F("deserializeJson() failed with code "));
+      Serial.println(error.c_str());
+
+      webSocket.broadcastTXT(whatWeHave);
+      break;
     }
- 
-    const uint32_t fadeInDelay = atoi((const char *)parsed["fadeIn"]);
-    const uint32_t fadeOutDelay = atoi((const char *)parsed["fadeOut"]);
-    const uint32_t startBrightness = atoi((const char *)parsed["startBr"]);
-    const uint32_t endBrightness = atoi((const char *)parsed["endBr"]);
-    
+
+    const uint32_t fadeInDelay = atoi((const char *)doc["fadeIn"]);
+    const uint32_t fadeOutDelay = atoi((const char *)doc["fadeOut"]);
+    const uint32_t startBrightness = atoi((const char *)doc["startBr"]);
+    const uint32_t endBrightness = atoi((const char *)doc["endBr"]);
+
     //uint32_t brightness = atoi((const char *)payload); // decode rgb data
 
     //fadeToLevel(startBrightness, FADE_DELAY_FAST);
-    
+
     executeParams(fadeInDelay, fadeOutDelay, startBrightness, endBrightness);
-    
+
     break;
   }
 }
@@ -317,13 +298,14 @@ void broadcastBrighness()
 
 void fadeToLevel(int toLevel, int fadeDelay)
 {
-  if (!fadeDelay) {
+  if (!fadeDelay)
+  {
     CURRENT_BRIGHTNESS = toLevel;
-    analogWrite(LED_STR, CURRENT_BRIGHTNESS); 
+    analogWrite(LED_STR, CURRENT_BRIGHTNESS);
 
     return;
   }
-  
+
   int delta = (toLevel - CURRENT_BRIGHTNESS) < 0 ? -1 : 1;
 
   while (CURRENT_BRIGHTNESS != toLevel)
@@ -366,7 +348,8 @@ String getContentType(String filename)
 }
 
 // Blinking logic according to params
-void executeParams(int fadeInDelay, int fadeOutDelay, int startBrightness, int endBrightness) {
+void executeParams(int fadeInDelay, int fadeOutDelay, int startBrightness, int endBrightness)
+{
   fadeToLevel(startBrightness, fadeInDelay);
   fadeToLevel(endBrightness, fadeOutDelay);
 }
